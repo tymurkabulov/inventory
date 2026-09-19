@@ -1,0 +1,16 @@
+{
+  "name": "horizon",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Horizon — ротный учёт личного состава и имущества",
+  "workspaces": ["server", "web"],
+  "scripts": {
+    "dev:api": "npm run dev:api -w server",
+    "dev:worker": "npm run dev:worker -w server",
+    "dev:web": "npm run dev -w web",
+    "build": "npm run build -w server && npm run build -w web",
+    "test": "npm test -w server",
+    "typecheck": "npm run typecheck -w server && npm run typecheck -w web"
+  },
+  "engines": { "node": ">=20" }
+}

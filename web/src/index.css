@@ -1,0 +1,180 @@
+@import 'tailwindcss';
+
+/* Токены из horizon-v2.html — единственный источник правды по виду.
+   Геометрия квадратная (радиус 4), поверхности плоские, всё с рамкой. */
+:root,
+:root[data-theme='dark'] {
+  --bg: #0f1214;
+  --bg-0: #0c0e10;
+  --surf: #15191c;
+  --surf-2: #1b2024;
+  --surf-3: #22282d;
+  --line: #262c31;
+  --line-2: #343b41;
+  --text: #e3e6e8;
+  --muted: #929ba1;
+  --faint: #6e777d;
+  --accent: #3b6e8f;
+  --accent-hover: #4a82a6;
+  --accent-ink: #f3f7fa;
+  --accent-dim: #1c3344;
+  --focus: #7eafcd;
+  --red: #c7453a;
+  --red-hover: #d85a4e;
+  --red-dim: #3a1c1a;
+  --red-ink: #f8d4d0;
+  --yellow: #cf9f1f;
+  --yellow-dim: #3a3010;
+  --yellow-ink: #f6e6b0;
+  --green: #2f8a5b;
+  --green-hover: #37a06a;
+  --green-dim: #163226;
+  --green-ink: #cdebd9;
+  --full: #4aa888;
+  --full-dim: #16302a;
+  --full-ink: #cfe8de;
+  --shadow: 0 8px 24px rgb(0 0 0 / 0.48);
+  --scrim: rgb(8 10 12 / 0.64);
+  color-scheme: dark;
+}
+
+:root[data-theme='light'] {
+  --bg: #e8ecef;
+  --bg-0: #dce2e6;
+  --surf: #f6f8f9;
+  --surf-2: #ffffff;
+  --surf-3: #eef2f4;
+  --line: #c5ced3;
+  --line-2: #9aa6ad;
+  --text: #161a1d;
+  --muted: #5b656b;
+  --faint: #6f7a81;
+  --accent: #2a5570;
+  --accent-hover: #1f4258;
+  --accent-ink: #f3f7fa;
+  --accent-dim: #d4e3ed;
+  --focus: #2a5570;
+  --red: #a8332a;
+  --red-hover: #8f281f;
+  --red-dim: #f3d6d3;
+  --red-ink: #4a1410;
+  --yellow: #8a6a0c;
+  --yellow-dim: #f3e6b8;
+  --yellow-ink: #3d2e00;
+  --green: #1f6b44;
+  --green-hover: #175334;
+  --green-dim: #cfe6d8;
+  --green-ink: #0d2e1c;
+  --full: #1d6b56;
+  --full-dim: #cfe6de;
+  --full-ink: #0d2e26;
+  --shadow: 0 8px 24px rgb(20 24 28 / 0.16);
+  --scrim: rgb(20 24 28 / 0.48);
+  color-scheme: light;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-bg-0: var(--bg-0);
+  --color-surf: var(--surf);
+  --color-surf-2: var(--surf-2);
+  --color-surf-3: var(--surf-3);
+  --color-line: var(--line);
+  --color-line-2: var(--line-2);
+  --color-focus: var(--focus);
+  --color-text: var(--text);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-ink: var(--accent-ink);
+  --color-accent-dim: var(--accent-dim);
+  --color-red: var(--red);
+  --color-red-hover: var(--red-hover);
+  --color-red-dim: var(--red-dim);
+  --color-red-ink: var(--red-ink);
+  --color-yellow: var(--yellow);
+  --color-yellow-dim: var(--yellow-dim);
+  --color-yellow-ink: var(--yellow-ink);
+  --color-green: var(--green);
+  --color-green-hover: var(--green-hover);
+  --color-green-dim: var(--green-dim);
+  --color-green-ink: var(--green-ink);
+  --color-full: var(--full);
+  --color-full-dim: var(--full-dim);
+  --color-full-ink: var(--full-ink);
+
+  --radius-DEFAULT: 4px;
+  --radius-sm: 4px;
+  --radius-md: 4px;
+  --radius-lg: 6px;
+
+  /* 44px — минимальная зона нажатия: экран смотрят в перчатках. */
+  --spacing-touch: 44px;
+  --spacing-sidebar: 212px;
+
+  --shadow-sheet: var(--shadow);
+
+  --font-sans: system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', Consolas, Menlo, monospace;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  font-size: 14px;
+  line-height: 20px;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Числа не «прыгают» при правке остатка. */
+.tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Всё, что нажимается, показывает это курсором. */
+button:not(:disabled),
+a[href],
+select:not(:disabled),
+summary,
+[role='tab'],
+[role='button'] {
+  cursor: pointer;
+}
+
+button:disabled,
+select:disabled {
+  cursor: not-allowed;
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* Поле с подсказками (list=) остаётся обычным текстовым: браузерная стрелка
+   обещает выбор из списка, которого там нет. */
+input[list]::-webkit-calendar-picker-indicator {
+  display: none !important;
+}
+
+input[type='number']::-webkit-inner-spin-button,
+input[type='number']::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type='number'] {
+  -moz-appearance: textfield;
+}
+
+dialog::backdrop {
+  background: var(--scrim);
+}

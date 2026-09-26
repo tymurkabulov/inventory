@@ -65,7 +65,7 @@ export const adminRoutes =
       const rows = await call(req, 'select horizon.invite_user($1, $2, $3, $4) as id', [
         b.login,
         b.callsign,
-        hashInviteCode(code),
+        hashInviteCode(code, config.appSecret),
         config.inviteValidHours,
       ]);
       return { id: rows[0]!.id, code, valid_hours: config.inviteValidHours };
@@ -108,7 +108,7 @@ export const adminRoutes =
     app.post('/users/:id/reset-access', async (req) => {
       const { id } = idParam.parse(req.params);
       const code = newInviteCode();
-      await call(req, 'select horizon.reset_access($1, $2, $3)', [id, hashInviteCode(code), config.inviteValidHours]);
+      await call(req, 'select horizon.reset_access($1, $2, $3)', [id, hashInviteCode(code, config.appSecret), config.inviteValidHours]);
       return { code, valid_hours: config.inviteValidHours };
     });
 

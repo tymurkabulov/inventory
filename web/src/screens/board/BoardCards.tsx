@@ -12,7 +12,7 @@ export function BoardCards({
   items: Item[];
   now: number;
   onOpen: (item: Item) => void;
-  onSaveQty: (id: string, qty: number) => void;
+  onSaveQty: (id: string, qty: number, expected: number) => void;
 }) {
   const { t, lang } = useI18n();
   return (
@@ -40,7 +40,7 @@ export function BoardCards({
               </div>
               <StatusBadge level={level} />
             </div>
-            <QtyStepper value={it.qty} saveLabel={t('common.save')} onSave={(qty) => onSaveQty(it.id, qty)} />
+            <QtyStepper value={it.qty} saveLabel={t('common.save')} onSave={(qty, expected) => onSaveQty(it.id, qty, expected)} />
             <div className="tnum flex flex-wrap items-center gap-x-2 text-xs text-muted">
               <span>
                 {fmtQty(lang, it.qty)} / {fmtQty(lang, it.ideal_qty)} {it.unit}

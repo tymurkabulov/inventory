@@ -1,6 +1,6 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { RouterProvider } from '@tanstack/react-router';
-import { useEffect, useMemo } from 'react';
+import { useEffect, useState } from 'react';
 import { setUnauthorizedHandler } from './api';
 import { useT } from './i18n';
 import { useMe } from './hooks';
@@ -13,7 +13,8 @@ export function App() {
   const qc = useQueryClient();
   const t = useT();
   const me = useMe();
-  const router = useMemo(() => createAppRouter(qc), [qc]);
+  // Роутер создаётся один раз: useState это гарантирует, useMemo — нет.
+  const [router] = useState(() => createAppRouter(qc));
 
   useEffect(() => {
     setUnauthorizedHandler(() => {

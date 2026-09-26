@@ -6,17 +6,30 @@ x-server: &server
   image: horizon/server:local
   pull_policy: never
   restart: unless-stopped
+  # Пароля postgres здесь нет: DATABASE_ADMIN_URL нужен только migrate и cli,
+  # а api смотрит наружу — суперпользователь базы в его окружении не лежит.
   environment: &server-env
     NODE_ENV: production
-    TZ: ${TZ_NAME:-Europe/Moscow}
+    TZ: ${TZ_NAME:-Europe/Kyiv}
     DATABASE_URL: postgres://horizon_api:${HORIZON_API_DB_PASSWORD:?}@db:5432/horizon
-    DATABASE_ADMIN_URL: postgres://postgres:${POSTGRES_PASSWORD:?}@db:5432/horizon
     SECURE_COOKIES: ${SECURE_COOKIES:-true}
     SESSION_TTL_DAYS: ${SESSION_TTL_DAYS:-30}
     INVITE_VALID_HOURS: ${INVITE_VALID_HOURS:-72}
     APP_SECRET: ${APP_SECRET:?}
-    TZ_NAME: ${TZ_NAME:-Europe/Moscow}
+    TZ_NAME: ${TZ_NAME:-Europe/Kyiv}
     DEFAULT_LOCALE: ${DEFAULT_LOCALE:-uk}
+    # Пропуск к подробностям /api/health: версия схемы и счётчики. Пусто — наружу
+    # уходит только «жив» и degraded.
+    OPS_TOKEN: ${OPS_TOKEN:-}
+    # Сколько прокси перед API. Профиль tls — это Caddy + nginx, два прыжка:
+    # с единицей адресом клиента станет контейнерный адрес Caddy, и лимит
+    # неудачных входов станет общим на всю роту.
+    TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-1}
+    # По нему API сверяет число прыжков: с tls меньше двух — не стартует.
+    COMPOSE_PROFILES: ${COMPOSE_PROFILES:-}
+    SESSION_ROTATE_HOURS: ${SESSION_ROTATE_HOURS:-24}
+    LOGIN_FAILS_PER_IP_HOUR: ${LOGIN_FAILS_PER_IP_HOUR:-20}
+    LOGIN_FAILS_PER_USER_HOUR: ${LOGIN_FAILS_PER_USER_HOUR:-50}
   logging:
     driver: json-file
     options: { max-size: 10m, max-file: '3' }
@@ -29,7 +42,7 @@ services:
       POSTGRES_DB: horizon
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
-      TZ: ${TZ_NAME:-Europe/Moscow}
+      TZ: ${TZ_NAME:-Europe/Kyiv}
     volumes:
       - dbdata:/var/lib/postgresql/data
     healthcheck:
@@ -48,6 +61,8 @@ services:
     restart: 'no'
     environment:
       <<: *server-env
+      # Владелец схемы: только здесь и в cli.
+      DATABASE_ADMIN_URL: postgres://postgres:${POSTGRES_PASSWORD:?}@db:5432/horizon
       HORIZON_API_DB_PASSWORD: ${HORIZON_API_DB_PASSWORD:?}
     depends_on:
       db: { condition: service_healthy }
@@ -83,10 +98,11 @@ services:
       PGUSER: postgres
       PGDATABASE: horizon
       PGPASSWORD: ${POSTGRES_PASSWORD:?}
-      TZ: ${TZ_NAME:-Europe/Moscow}
+      TZ: ${TZ_NAME:-Europe/Kyiv}
       BACKUP_AT: ${BACKUP_AT:-03:30}
       BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-14}
       BACKUP_PASSPHRASE: ${BACKUP_PASSPHRASE:-}
+      BACKUP_PING_URL: ${BACKUP_PING_URL:-}
     volumes:
       - ./backups:/backups
       - ./docker/backup.sh:/backup.sh:ro

@@ -54,6 +54,23 @@ describe('status() — раздел 5', () => {
     });
   });
 
+  // Та же таблица лежит в web/test/status.test.ts и сверяется с statusOf().
+  // Формула продублирована ради оптимистичного UI — значения обязаны совпадать.
+  it.each([
+    [0, 1, 2, 'red'],
+    [18, 20, 50, 'red'],
+    [1.5, 2, 3, 'red'],
+    [20, 20, 50, 'yellow'],
+    [35, 20, 50, 'yellow'],
+    [2.5, 2, 3, 'yellow'],
+    [0, 0, 1, 'yellow'],
+    [50, 20, 50, 'green'],
+    [80, 20, 50, 'green'],
+  ])('horizon.status(%s, %s, %s) = %s', async (qty, min, acceptable, expected) => {
+    const r = await one<{ s: string }>(db, 'select horizon.status($1, $2, $3, $3) s', [qty, min, acceptable]);
+    expect(r.s).toBe(expected);
+  });
+
   it('пороги 50/20/100 не сохраняются', async () => {
     const actor = await seedUser(db, 'Пороги');
     await assign(actor, boss, shop);
@@ -83,7 +100,7 @@ describe('один человек — одно место (разделы 2, 4.3
     expect(items.rows.map((r) => r.name)).toEqual(['Бензин']);
     const positions = await as(db, a, (tx) => tx.query<{ name: string }>('select name from horizon.positions'));
     expect(positions.rows.map((r) => r.name)).toEqual(['Позиция-2']);
-    const me = await as(db, a, (tx) => one<{ me: any }>(tx, 'select horizon.me() me'));
+    const me = await as(db, a, (tx) => one<{ me: Record<string, unknown> }>(tx, 'select horizon.me() me'));
     expect(me.me.assignment).toMatchObject({ position_id: p2, name: 'Позиция-2', date_from: '2026-09-01' });
   });
 
@@ -138,7 +155,7 @@ describe('один человек — одно место (разделы 2, 4.3
   it('снятие возвращает экран ожидания и пустую таблицу', async () => {
     await unassign(a, boss);
     expect(await openCount(a)).toBe(0);
-    const me = await as(db, a, (tx) => one<{ me: any }>(tx, 'select horizon.me() me'));
+    const me = await as(db, a, (tx) => one<{ me: Record<string, unknown> }>(tx, 'select horizon.me() me'));
     expect(me.me.assignment).toBeNull();
     const items = await as(db, a, (tx) => tx.query('select * from horizon.items'));
     expect(items.rows).toEqual([]);
@@ -195,6 +212,41 @@ describe('права (разделы 3, 8)', () => {
     await expect(as(db, f, (tx) => tx.query('select * from horizon.audit_log'))).rejects.toMatchObject({ code: '42501' });
     await expect(as(db, f, (tx) => tx.query('select horizon.auth_lookup($1)', ['Гром']))).rejects.toMatchObject({ code: '42501' });
   });
+
+  it('подпись «кто обновил» переживает перевод автора', async () => {
+    const pos = await seedPosition(db, 'Позиция-8');
+    const away = await seedPosition(db, 'Позиция-9');
+    const author = await seedUser(db, 'Хорёк');
+    const heir = await seedUser(db, 'Індія');
+    await assign(author, boss, pos, '2026-09-01');
+    const item = await upsert(author, { position_id: pos, name: 'Трос', unit: 'шт', qty: 5, min: 1, acc: 2, ideal: 9 });
+
+    // Автора перевели, на его место сел другой человек.
+    await transfer(author, boss, away, '2026-09-10');
+    await assign(heir, boss, pos, '2026-09-11');
+
+    const row = await as(db, heir, (tx) =>
+      one<{ callsign: string | null }>(
+        tx,
+        `select u.callsign from horizon.items i
+           left join horizon.users u on u.id = i.updated_by
+          where i.id = $1`,
+        [item.id],
+      ),
+    );
+    expect(row.callsign).toBe('Хорёк');
+  });
+
+  // Postgres открывает новую функцию PUBLIC, а alter default privileges этого не
+  // отменяет. Миграция, создавшая функцию без revoke, открыла бы её всем.
+  it('наружу не торчит ни одна функция схемы', async () => {
+    const { rows } = await db.query<{ proname: string }>(
+      `select p.proname from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'horizon' and has_function_privilege('public', p.oid, 'execute')
+        order by p.proname`,
+    );
+    expect(rows.map((r) => r.proname)).toEqual([]);
+  });
 });
 
 describe('остаток и movement (раздел 4.2)', () => {
@@ -221,6 +273,28 @@ describe('остаток и movement (раздел 4.2)', () => {
   it('остаток ниже минимума делает строку красной', async () => {
     const saved = await upsert(g, { id: item, qty: 18 });
     expect(saved.stock_rank).toBe(0); // 0 — красный, см. horizon.status()
+  });
+
+  // В бою updated_at лежит с микросекундами, а драйвер отдаёт клиенту Date, то
+  // есть миллисекунды: точное сравнение отвергало бы каждое сохранение. Часы
+  // PGlite тикают миллисекундами и этого не покажут, поэтому микросекунды здесь
+  // проставлены руками — иначе разницу нашёл бы только бой.
+  it('снимок строки сверяется с точностью до миллисекунд', async () => {
+    const stamp = () =>
+      db.query(`update horizon.items set updated_at = '2026-09-20 10:00:00.123456+00' where id = $1`, [item]);
+    const save = (snapshot: string) =>
+      as(db, g, (tx) =>
+        tx.query(
+          `select id from horizon.upsert_item($1, null, null, null, null, null, null, null, null, null, $2, '', $3)`,
+          [item, 'перевірив', snapshot],
+        ),
+      );
+
+    await stamp();
+    await expect(save('2026-09-20T10:00:00.123Z')).resolves.toBeTruthy();
+
+    await stamp();
+    await expect(save('2026-09-20T10:00:00.124Z')).rejects.toMatchObject({ code: 'HZ409' });
   });
 });
 

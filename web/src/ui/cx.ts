@@ -22,29 +22,13 @@ export function openable(onOpen: () => void) {
 }
 
 /**
- * Копирование в буфер. navigator.clipboard есть только на HTTPS и localhost,
- * а в поле сайт часто открывают по http://адрес — поэтому запасной способ.
+ * Копирование в буфер. Сайт работает по HTTPS, где navigator.clipboard есть
+ * всегда. Отказ (нет разрешения) — false: экран предложит скопировать руками.
  */
 export async function copyText(text: string): Promise<boolean> {
   try {
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(text);
-      return true;
-    }
-  } catch {
-    /* нет разрешения или незащищённое соединение — пробуем иначе */
-  }
-  try {
-    const area = document.createElement('textarea');
-    area.value = text;
-    area.setAttribute('readonly', '');
-    area.style.position = 'fixed';
-    area.style.opacity = '0';
-    document.body.appendChild(area);
-    area.select();
-    const ok = document.execCommand('copy');
-    area.remove();
-    return ok;
+    await navigator.clipboard.writeText(text);
+    return true;
   } catch {
     return false;
   }

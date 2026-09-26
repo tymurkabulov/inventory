@@ -9,6 +9,7 @@ import {
   timingSafeEqual,
 } from 'node:crypto';
 import { promisify } from 'node:util';
+import { AppError } from './db.js';
 
 const scryptAsync = promisify(scrypt) as (pw: string, salt: Buffer, len: number, opts: object) => Promise<Buffer>;
 
@@ -25,7 +26,8 @@ const waiting: Array<() => void> = [];
 
 async function withHashSlot<T>(fn: () => Promise<T>): Promise<T> {
   if (running >= HASH_LIMIT) {
-    if (waiting.length >= HASH_QUEUE_MAX) throw new Error('сервер занят, повторите позже');
+    // 503, а не 500: это перегрузка, а не ошибка в коде, и degraded от неё подниматься не должен.
+    if (waiting.length >= HASH_QUEUE_MAX) throw new AppError(503, 'сервер занят, повторите позже', 'busy');
     await new Promise<void>((resolve) => waiting.push(resolve));
   }
   running++;
@@ -115,8 +117,14 @@ export function normalizeInviteCode(code: string): string {
   return code.toUpperCase().replace(/[^0-9A-Z]/g, '');
 }
 
-export function hashInviteCode(code: string): string {
-  return sha256(`invite:${normalizeInviteCode(code)}`);
+/**
+ * Хеш кода входа — HMAC на ключе из APP_SECRET. В коде около 36 бит: простой
+ * sha256 из дампа перебирается за секунды, и живые приглашения уходят вместе
+ * с дампом. С ключом одного дампа мало, как и для секретов TOTP.
+ */
+export function hashInviteCode(code: string, appSecret: string): string {
+  const key = createHash('sha256').update(`invite-key:${appSecret}`).digest();
+  return createHmac('sha256', key).update(normalizeInviteCode(code)).digest('hex');
 }
 
 // ---------------------------------------------------------------------------

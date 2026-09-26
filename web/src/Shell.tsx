@@ -1,23 +1,23 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { Outlet, useNavigate, useRouterState } from '@tanstack/react-router';
-import { type ReactNode, Suspense, useCallback, useEffect, useState } from 'react';
+import { Link, Outlet, useCanGoBack, useNavigate, useRouter, useRouterState } from '@tanstack/react-router';
+import { useEffect, useEffectEvent, useState } from 'react';
 import { api, type Me } from './api';
 import { hasSavedLang, isLang, type Lang, useI18n } from './i18n';
-import { PageTitleProvider, useLocalState, useMe } from './hooks';
+import { useLocalState, useMe } from './hooks';
 import {
   ConfirmSheet,
-  cx,
   Icon,
   type IconName,
   IconButton,
   LanguageSelect,
-  Loading,
+  PageTitleSlot,
   TopBar,
 } from './ui';
 
 interface Tab {
   label: string;
-  to: string;
+  // Маршрут, а не строка: опечатку в разделе поймает TypeScript.
+  to: '/me' | '/admin' | '/admin/people' | '/admin/positions';
   icon: IconName;
 }
 
@@ -25,11 +25,13 @@ interface Tab {
 export function Shell() {
   const qc = useQueryClient();
   const navigate = useNavigate();
+  const router = useRouter();
+  const canGoBack = useCanGoBack();
   const path = useRouterState({ select: (s) => s.location.pathname });
   const { t, lang, setLang } = useI18n();
   const me = useMe().data as Me;
   const [theme, setTheme] = useLocalState('hz-theme', 'dark');
-  const [page, setPage] = useState<{ title: ReactNode; meta?: ReactNode }>({ title: 'Horizon' });
+  const [titleSlot, setTitleSlot] = useState<HTMLElement | null>(null);
   const [confirmLogout, setConfirmLogout] = useState(false);
   const [leaving, setLeaving] = useState(false);
 
@@ -40,23 +42,24 @@ export function Shell() {
     document.documentElement.dataset.theme = theme;
   }, [theme]);
 
-  const saveLocale = useCallback(
-    async (locale: Lang) => {
-      try {
-        await api.post('/me/locale', { locale });
-        qc.setQueryData<Me | null>(['me'], (m) => (m ? { ...m, locale } : m));
-      } catch {
-        /* язык интерфейса уже сменился; боту — при следующей попытке */
-      }
-    },
-    [qc],
-  );
+  const saveLocale = async (locale: Lang) => {
+    try {
+      await api.post('/me/locale', { locale });
+      qc.setQueryData<Me | null>(['me'], (m) => (m ? { ...m, locale } : m));
+    } catch {
+      /* язык интерфейса уже сменился на экране; в профиль — при следующей попытке */
+    }
+  };
 
-  // Язык из профиля важнее языка устройства: на нём же пишет бот.
-  useEffect(() => {
-    if (isLang(me.locale)) setLang(me.locale, false);
+  // Язык из профиля важнее языка устройства. Срабатывает на приход профиля, а не
+  // на смену языка: переключатель в шапке сам зовёт saveLocale, и реакция на lang
+  // означала бы повторную отправку на каждое переключение. Поэтому lang читается
+  // из события эффекта, а не из его зависимостей.
+  const syncLocale = useEffectEvent((locale: string | null) => {
+    if (isLang(locale)) setLang(locale, false);
     else if (hasSavedLang()) void saveLocale(lang);
-  }, [me.id, me.locale]);
+  });
+  useEffect(() => syncLocale(me.locale), [me.id, me.locale]);
 
   // qc.clear() уничтожает и сам запрос профиля — экран остаётся висеть со старыми
   // данными. Поэтому профиль обнуляем явно, а остальные запросы выбрасываем.
@@ -70,10 +73,10 @@ export function Shell() {
   // Рядовой видит только своё место — разделов для него нет.
   const tabs: Tab[] = isAdmin
     ? [
-        ...(own ? [{ label: t('nav.own'), to: '/me', icon: 'board' as const }] : []),
+        ...(own ? [{ label: t('nav.own'), to: '/me', icon: 'board' } satisfies Tab] : []),
         { label: t('nav.overview'), to: '/admin', icon: 'board' },
         { label: t('nav.people'), to: '/admin/people', icon: 'people' },
-        ...(me.admin.full ? [{ label: t('nav.positions'), to: '/admin/positions', icon: 'pin' as const }] : []),
+        ...(me.admin.full ? [{ label: t('nav.positions'), to: '/admin/positions', icon: 'pin' } satisfies Tab] : []),
       ]
     : [];
 
@@ -102,19 +105,18 @@ export function Shell() {
         <aside className="hidden w-sidebar shrink-0 flex-col gap-0.5 border-r border-line bg-bg-0 p-3 lg:flex">
           <div className="px-2 pt-2 pb-4 text-xs font-bold tracking-[0.12em] text-muted">HORIZON</div>
           {tabs.map((tab) => (
-            <button
+            <Link
               key={tab.to}
-              type="button"
-              aria-current={path === tab.to ? 'page' : undefined}
-              onClick={() => navigate({ to: tab.to })}
-              className={cx(
-                'flex min-h-touch w-full items-center gap-2 px-2 text-left text-sm',
-                path === tab.to ? 'bg-surf-2 font-semibold text-text' : 'text-text hover:bg-surf',
-              )}
+              to={tab.to}
+              // exact: «Панель» (/admin) не должна гореть на /admin/people.
+              activeOptions={{ exact: true }}
+              className="flex min-h-touch w-full items-center gap-2 px-2 text-left text-sm text-text"
+              activeProps={{ className: 'bg-surf-2 font-semibold' }}
+              inactiveProps={{ className: 'hover:bg-surf' }}
             >
               <Icon name={tab.icon} className="size-4 text-muted" />
               {tab.label}
-            </button>
+            </Link>
           ))}
           {/* Кто сейчас в системе: на позиции одним телефоном пользуются по очереди,
               и это должно читаться с расстояния вытянутой руки. */}
@@ -125,7 +127,15 @@ export function Shell() {
       )}
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <TopBar title={page.title} meta={page.meta} onBack={path.startsWith('/pos/') ? () => history.back() : undefined}>
+        <TopBar
+          titleRef={setTitleSlot}
+          // Доску могли открыть прямой ссылкой — тогда «назад» ведёт на панель, а не с сайта.
+          onBack={
+            path.startsWith('/pos/')
+              ? () => (canGoBack ? router.history.back() : navigate({ to: '/admin' }))
+              : undefined
+          }
+        >
           {controls}
         </TopBar>
 
@@ -133,27 +143,23 @@ export function Shell() {
         {tabs.length > 0 && (
           <nav className="flex shrink-0 gap-1 overflow-x-auto border-b border-line bg-surf px-3 py-1.5 lg:hidden">
             {tabs.map((tab) => (
-              <button
+              <Link
                 key={tab.to}
-                type="button"
-                aria-current={path === tab.to ? 'page' : undefined}
-                onClick={() => navigate({ to: tab.to })}
-                className={cx(
-                  'min-h-9 shrink-0 border px-2.5 text-xs font-semibold whitespace-nowrap',
-                  path === tab.to ? 'border-accent bg-surf-2 text-text' : 'border-line bg-surf-2 text-muted',
-                )}
+                to={tab.to}
+                activeOptions={{ exact: true }}
+                className="flex min-h-9 shrink-0 items-center border bg-surf-2 px-2.5 text-xs font-semibold whitespace-nowrap"
+                activeProps={{ className: 'border-accent text-text' }}
+                inactiveProps={{ className: 'border-line text-muted' }}
               >
                 {tab.label}
-              </button>
+              </Link>
             ))}
           </nav>
         )}
 
-        <PageTitleProvider onChange={setPage}>
-          <Suspense fallback={<Loading />}>
-            <Outlet />
-          </Suspense>
-        </PageTitleProvider>
+        <PageTitleSlot value={titleSlot}>
+          <Outlet />
+        </PageTitleSlot>
       </div>
 
       <ConfirmSheet

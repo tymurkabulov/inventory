@@ -9,8 +9,22 @@ pg.types.setTypeParser(pg.types.builtins.INT8, (v) => Number(v));
 export type Pool = pg.Pool;
 export type Client = pg.PoolClient;
 
+/**
+ * Ни один запрос не должен ждать вечно. Без таймаутов зависшая транзакция или
+ * очередь к пулу из 10 соединений останавливали весь API, и лечилось это только
+ * рестартом.
+ */
 export function createPool(connectionString: string, max = 10): pg.Pool {
-  const pool = new pg.Pool({ connectionString, max, idleTimeoutMillis: 30_000 });
+  const pool = new pg.Pool({
+    connectionString,
+    max,
+    idleTimeoutMillis: 30_000,
+    // Свободного соединения нет 5 с — отказ, а не бесконечное ожидание.
+    connectionTimeoutMillis: 5_000,
+    // Самый тяжёлый запрос (панель на 20 тыс. строк) — десятки миллисекунд.
+    statement_timeout: 10_000,
+    idle_in_transaction_session_timeout: 15_000,
+  });
   pool.on('error', (err) => console.error('pg pool error', err));
   return pool;
 }

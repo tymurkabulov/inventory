@@ -76,10 +76,12 @@ export interface Overview {
 
 export interface Person {
   id: string;
-  login: string;
+  /** Админу зоны — только у тех, кого он завёл сам. */
+  login: string | null;
   callsign: string;
   is_active: boolean;
-  has_pin: boolean;
+  /** Пароль заведён: PIN-а нет с миграции 006, сервер отдаёт has_password. */
+  has_password: boolean;
   invite_pending: boolean;
   is_full_admin: boolean;
   admin_position_ids: string[];
@@ -124,20 +126,45 @@ export function setUnauthorizedHandler(fn: () => void) {
   onUnauthorized = fn;
 }
 
-async function request<T>(method: 'GET' | 'POST', path: string, body?: unknown): Promise<T> {
+/**
+ * Запрос обязан закончиться. На мобильной связи бывает, что соединение есть, а
+ * пакеты не ходят: fetch тогда не отклонится никогда, и экран остаётся со
+ * спиннером без единой кнопки.
+ */
+const TIMEOUT_MS = 15_000;
+
+async function request<T>(method: 'GET' | 'POST', path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
+  // AbortSignal.timeout и AbortSignal.any есть не на всех телефонах, с которых
+  // это открывают, поэтому таймаут и отмену сводим руками в один контроллер.
+  const ctrl = new AbortController();
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    ctrl.abort();
+  }, TIMEOUT_MS);
+  const cancel = () => ctrl.abort();
+  signal?.addEventListener('abort', cancel, { once: true });
+
   let res: Response;
   try {
     res = await fetch(`/api${path}`, {
       method,
       credentials: 'same-origin',
+      signal: ctrl.signal,
       headers: {
         'x-horizon': '1',
         ...(body !== undefined ? { 'content-type': 'application/json' } : {}),
       },
       body: body !== undefined ? JSON.stringify(body) : undefined,
     });
-  } catch {
+  } catch (err) {
+    // Запрос сняли снаружи (ушли с экрана) — это не сбой связи, пробрасываем как есть.
+    if (signal?.aborted) throw err;
+    if (timedOut) throw new ApiError(0, 'timeout', 'timeout');
     throw new ApiError(0, 'network error', 'network');
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener('abort', cancel);
   }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
@@ -149,7 +176,8 @@ async function request<T>(method: 'GET' | 'POST', path: string, body?: unknown):
 }
 
 export const api = {
-  get: <T>(path: string) => request<T>('GET', path),
+  /** signal приходит от react-query: уход с экрана снимает запрос. */
+  get: <T>(path: string, signal?: AbortSignal) => request<T>('GET', path, undefined, signal),
   post: <T = { ok: true }>(path: string, body: unknown = {}) => request<T>('POST', path, body),
 };
 

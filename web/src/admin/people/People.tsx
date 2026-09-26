@@ -1,15 +1,16 @@
 import { useQuery } from '@tanstack/react-query';
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { api, type Me, type Person } from '../../api';
 import { fmtDate } from '../../format';
 import { fmtAgo, useI18n } from '../../i18n';
-import { useNow, usePageTitle } from '../../hooks';
+import { useMe, useNow } from '../../hooks';
 import {
   BottomBar,
   Button,
   Checkbox,
   Empty,
   ErrorNote,
+  PageTitle,
   Icon,
   Loading,
   SearchInput,
@@ -20,34 +21,39 @@ import { InviteSheet } from './InviteSheet';
 import { PersonSheet } from './PersonSheet';
 
 /** Список людей: поиск, фильтр «без места» и вход в карточку человека. */
-export function People({ me }: { me: Me }) {
+export function People() {
+  // Профиль уже загружен: без него App не показывает маршруты.
+  const me = useMe().data as Me;
   const { t, lang } = useI18n();
   const now = useNow();
-  const people = useQuery({ queryKey: ['admin', 'people'], queryFn: () => api.get<Person[]>('/admin/people') });
+  const people = useQuery({
+    queryKey: ['admin', 'people'],
+    queryFn: ({ signal }) => api.get<Person[]>('/admin/people', signal),
+  });
   const [selected, setSelected] = useState<string | null>(null);
   const [inviting, setInviting] = useState(false);
   const [query, setQuery] = useState('');
   const [onlyWaiting, setOnlyWaiting] = useState(false);
 
-  usePageTitle(t('nav.people'), people.data ? t('people.count', { count: people.data.length }) : undefined);
-
-  const list = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return (people.data ?? []).filter(
+  const q = query.trim().toLowerCase();
+  const list = (people.data ?? []).filter(
       (p) =>
         (!q ||
           p.callsign.toLowerCase().includes(q) ||
-          p.login.includes(q) ||
+          (p.login ?? '').includes(q) ||
           (p.position_name ?? '').toLowerCase().includes(q)) &&
         (!onlyWaiting || (p.is_active && !p.position_id)),
-    );
-  }, [people.data, query, onlyWaiting]);
+  );
 
   const person = people.data?.find((p) => p.id === selected) ?? null;
   const waiting = (people.data ?? []).filter((p) => p.is_active && !p.position_id).length;
 
   return (
     <>
+      <PageTitle
+        title={t('nav.people')}
+        meta={people.data ? t('people.count', { count: people.data.length }) : undefined}
+      />
       <div className="flex min-h-0 flex-1 flex-col">
         <StickyTools>
           <div className="flex flex-wrap gap-2">
@@ -82,7 +88,11 @@ export function People({ me }: { me: Me }) {
                   <span className="min-w-0 flex-1">
                     <b className={p.is_active ? '' : 'text-muted line-through'}>{p.callsign}</b>
                     <span className="block truncate text-xs text-muted">
-                      <span className="font-mono">{p.login}</span> ·{' '}
+                      {p.login && (
+                        <>
+                          <span className="font-mono">{p.login}</span> ·{' '}
+                        </>
+                      )}
                       {p.position_id
                         ? `${p.position_name} · ${t('common.since', { date: fmtDate(p.date_from) })}`
                         : t('people.noPlace')}

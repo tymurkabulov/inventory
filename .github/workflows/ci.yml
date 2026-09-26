@@ -1,13 +1,72 @@
 name: ci
 on: [push, pull_request]
+# Токену CI нужно только читать код. Actions закреплены по SHA: тег v4 можно
+# перевесить на другой коммит, а коммит — нет.
+permissions:
+  contents: read
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with: { node-version: 22, cache: npm }
       - run: npm ci
       - run: npm run typecheck
+      - run: npm run lint
       - run: npm test
       - run: npm run build
+
+  # Тесты идут на PGlite, а в бою PostgreSQL 16. Расхождение версий уже стоило
+  # нам прав на invite_user, поэтому миграции отдельно проверяются на той же
+  # версии сервера, что стоит на VPS.
+  migrations:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: horizon
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres -d horizon"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      NODE_ENV: production
+      APP_SECRET: ci-secret-not-for-production
+      DATABASE_ADMIN_URL: postgres://postgres:postgres@127.0.0.1:5432/horizon
+      PGPASSWORD: postgres
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+
+      - name: миграции на чистой базе
+        run: npm run migrate -w server
+
+      - name: повторный прогон ничего не применяет
+        run: |
+          out=$(npm run migrate -w server)
+          echo "$out"
+          if echo "$out" | grep -qE '^migrate: [0-9]{3}_'; then
+            echo "вторая миграция что-то применила — журнал применённых не работает" >&2
+            exit 1
+          fi
+
+      - name: ни одна функция схемы не доступна public
+        run: |
+          leaked=$(psql -h 127.0.0.1 -U postgres -d horizon -tAc \
+            "select coalesce(string_agg(p.proname, ', '), '')
+               from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+              where n.nspname = 'horizon' and has_function_privilege('public', p.oid, 'execute')")
+          if [ -n "$leaked" ]; then echo "public может выполнять: $leaked" >&2; exit 1; fi
+
+      - name: права приложения на месте
+        run: |
+          ok=$(psql -h 127.0.0.1 -U postgres -d horizon -tAc \
+            "select has_function_privilege('horizon_user', 'horizon.invite_user(text,text,text,int)', 'execute')")
+          if [ "$ok" != t ]; then echo "horizon_user не может звать invite_user" >&2; exit 1; fi

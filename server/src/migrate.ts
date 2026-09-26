@@ -14,26 +14,38 @@ export function migrationsDir(): string {
   return resolve(dirname(fileURLToPath(import.meta.url)), '../../db/migrations');
 }
 
+/**
+ * Ключ блокировки выкладки. Две одновременные выкладки (или рестарт migrate
+ * поверх работающего) не должны накладываться: вторая ждёт, пока первая доведёт
+ * своё до конца. Блокировка живёт на сессии, поэтому упавший процесс её отпустит.
+ */
+const MIGRATION_LOCK = 4021966;
+
 export async function migrate(db: Migrator, dir = migrationsDir(), log: (m: string) => void = console.log) {
-  await db.exec(`create table if not exists public.horizon_migrations (
-    name text primary key, applied_at timestamptz not null default now())`);
-  const applied = new Set(
-    (await db.query('select name from public.horizon_migrations')).rows.map((r) => String(r.name)),
-  );
-  const files = (await readdir(dir)).filter((f) => f.endsWith('.sql')).sort();
-  for (const file of files) {
-    if (applied.has(file)) continue;
-    const sql = await readFile(join(dir, file), 'utf8');
-    log(`migrate: ${file}`);
-    await db.exec('begin');
-    try {
-      await db.exec(sql);
-      await db.query('insert into public.horizon_migrations (name) values ($1)', [file]);
-      await db.exec('commit');
-    } catch (err) {
-      await db.exec('rollback');
-      throw new Error(`migration ${file} failed: ${(err as Error).message}`);
+  await db.query('select pg_advisory_lock($1::bigint)', [MIGRATION_LOCK]);
+  try {
+    await db.exec(`create table if not exists public.horizon_migrations (
+      name text primary key, applied_at timestamptz not null default now())`);
+    const applied = new Set(
+      (await db.query('select name from public.horizon_migrations')).rows.map((r) => String(r.name)),
+    );
+    const files = (await readdir(dir)).filter((f) => f.endsWith('.sql')).sort();
+    for (const file of files) {
+      if (applied.has(file)) continue;
+      const sql = await readFile(join(dir, file), 'utf8');
+      log(`migrate: ${file}`);
+      await db.exec('begin');
+      try {
+        await db.exec(sql);
+        await db.query('insert into public.horizon_migrations (name) values ($1)', [file]);
+        await db.exec('commit');
+      } catch (err) {
+        await db.exec('rollback');
+        throw new Error(`migration ${file} failed: ${(err as Error).message}`, { cause: err });
+      }
     }
+  } finally {
+    await db.query('select pg_advisory_unlock($1::bigint)', [MIGRATION_LOCK]);
   }
 }
 

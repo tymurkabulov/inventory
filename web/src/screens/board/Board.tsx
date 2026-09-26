@@ -1,15 +1,19 @@
 import { useQuery } from '@tanstack/react-query';
-import { useMemo, useState } from 'react';
-import { api, type Board as BoardData } from '../../api';
+import { useState } from 'react';
+import { api, type Board as BoardData, type Item } from '../../api';
 import { intlLocale, useI18n } from '../../i18n';
-import { useNow, usePageTitle } from '../../hooks';
-import { Banner, BottomBar, Button, Empty, ErrorNote, Loading } from '../../ui';
+import { useNow } from '../../hooks';
+import { Banner, BottomBar, Button, Empty, ErrorNote, Loading, PageTitle } from '../../ui';
 import { BoardCards } from './BoardCards';
 import { BoardFilters } from './BoardFilters';
 import { BoardTable } from './BoardTable';
 import { countItems, type Filter, visibleItems } from './filters';
 import { ItemPanel } from './ItemPanel';
-import { useSaveItem } from './items';
+import { useCategories, useSaveItem } from './items';
+
+/** Пока доска грузится, `?? []` создавал бы новый массив на каждый рендер, и
+    React Compiler пересчитывал бы производные ниже вхолостую. */
+const NO_ITEMS: Item[] = [];
 
 /** Экран позиции: данные и состояние фильтров здесь, отрисовка — в BoardCards/BoardTable. */
 export function Board({ positionId, isOwn }: { positionId: string; isOwn: boolean }) {
@@ -17,7 +21,7 @@ export function Board({ positionId, isOwn }: { positionId: string; isOwn: boolea
   const now = useNow();
   const board = useQuery({
     queryKey: ['board', positionId],
-    queryFn: () => api.get<BoardData>(`/positions/${positionId}/board`),
+    queryFn: ({ signal }) => api.get<BoardData>(`/positions/${positionId}/board`, signal),
     refetchInterval: 30_000,
     // Открыли экран — спрашиваем сервер заново: остаток могли поправить с другого телефона.
     refetchOnMount: 'always',
@@ -33,20 +37,23 @@ export function Board({ positionId, isOwn }: { positionId: string; isOwn: boolea
 
   const position = board.data?.position;
   const people = board.data?.people ?? [];
-  usePageTitle(
-    position?.name ?? 'Horizon',
-    position
-      ? `${t('people.count', { count: people.length })} · ${t('pos.staleAfter', { hours: position.stale_after_hours })}`
-      : undefined,
-  );
+  const title = position ? (
+    <PageTitle
+      title={position.name}
+      meta={`${t('people.count', { count: people.length })} · ${t('pos.staleAfter', { hours: position.stale_after_hours })}`}
+    />
+  ) : null;
 
-  const items = board.data?.items ?? [];
-  const categories = useMemo(
-    () => [...new Set(items.map((i) => i.category).filter(Boolean))].sort((a, b) => a.localeCompare(b, intlLocale(lang))),
-    [items, lang],
+  const items = board.data?.items ?? NO_ITEMS;
+  const categories = [...new Set(items.map((i) => i.category).filter(Boolean))].sort((a, b) =>
+    a.localeCompare(b, intlLocale(lang)),
   );
-  const counts = useMemo(() => countItems(items), [items]);
-  const visible = useMemo(() => visibleItems(items, filter, category, query), [items, filter, category, query]);
+  // Фильтру нужны категории, которые на доске есть; карточке — весь справочник
+  // роты. Тянем его здесь, чтобы к открытию карточки он уже лежал в кэше и
+  // список не подменялся на глазах.
+  const dictionary = useCategories().data;
+  const counts = countItems(items);
+  const visible = visibleItems(items, filter, category, query);
 
   if (board.isPending) return <Loading />;
   if (board.error) return <ErrorNote error={board.error} />;
@@ -54,10 +61,11 @@ export function Board({ positionId, isOwn }: { positionId: string; isOwn: boolea
   const stale = items.some((i) => i.stale);
   const canAdd = !!position?.is_active;
   const panelItem = panel?.itemId ? (items.find((i) => i.id === panel.itemId) ?? null) : null;
-  const saveQty = (id: string, qty: number) => saveItem({ id, qty });
+  const saveQty = (id: string, qty: number, expected: number) => saveItem({ id, qty, expected_qty: expected });
 
   return (
     <>
+      {title}
       <div className="flex min-h-0 flex-1 flex-col">
         {stale && <Banner>{t('board.staleHint')}</Banner>}
 
@@ -98,7 +106,12 @@ export function Board({ positionId, isOwn }: { positionId: string; isOwn: boolea
 
       {/* Строку могли удалить с другого телефона — тогда карточке нечего показывать. */}
       {panel && (panel.itemId === null || panelItem) && (
-        <ItemPanel positionId={positionId} item={panelItem} categories={categories} onClose={() => setPanel(null)} />
+        <ItemPanel
+          positionId={positionId}
+          item={panelItem}
+          categories={dictionary ?? categories}
+          onClose={() => setPanel(null)}
+        />
       )}
     </>
   );

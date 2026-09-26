@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { useT } from '../i18n';
 
@@ -15,19 +15,38 @@ export function QtyStepper({
 }: {
   value: number;
   saveLabel: string;
-  onSave: (next: number) => void;
+  /** expected — остаток, от которого считали: сервер откажет, если его уже поменяли. */
+  onSave: (next: number, expected: number) => void;
 }) {
   const t = useT();
   const [draft, setDraft] = useState<number>(value);
   const [typing, setTyping] = useState<string | null>(null);
+  // Человек начал править число. Ref, а не state: перерисовывать от этого нечего,
+  // а эффекту ниже нужно свежее значение, не попадая к себе же в зависимости.
+  const touched = useRef(false);
+  // Число с сервера, от которого начали править. Пока правка не сохранена,
+  // оно не двигается вместе с доской — иначе сервер не заметит чужую правку.
+  const base = useRef(value);
 
+  // Пока правку не сохранили, обновление доски (раз в 30 с или с чужого телефона)
+  // её не трогает: иначе набранное число исчезает под пальцами.
   useEffect(() => {
+    if (touched.current) return;
+    base.current = value;
     setDraft(value);
     setTyping(null);
   }, [value]);
 
+  /** Сохранение снимает защиту: дальше строка снова следует за сервером. */
+  const commit = (next: number) => {
+    touched.current = false;
+    onSave(next, base.current);
+    base.current = value;
+  };
+
   const dirty = draft !== value;
   const step = (d: number) => {
+    touched.current = true;
     setTyping(null);
     setDraft((v) => Math.max(0, Math.round((v + d) * 100) / 100));
   };
@@ -51,14 +70,17 @@ export function QtyStepper({
           onFocus={(e) => e.currentTarget.select()}
           onChange={(e) => {
             const raw = e.target.value.replace(/[^\d.,]/g, '');
+            touched.current = true;
             setTyping(raw);
             const parsed = Number(raw.replace(',', '.'));
             if (raw !== '' && Number.isFinite(parsed)) setDraft(Math.max(0, parsed));
           }}
           onBlur={() => setTyping(null)}
           onKeyDown={(e) => {
-            if (e.key === 'Enter' && dirty) onSave(draft);
+            if (e.key === 'Enter' && dirty) commit(draft);
             if (e.key === 'Escape') {
+              touched.current = false;
+              base.current = value;
               setTyping(null);
               setDraft(value);
             }
@@ -76,7 +98,7 @@ export function QtyStepper({
       </div>
       {/* Число не трогали — значит «перевірив, все на місці»: сохраняем как есть,
           строка перестаёт быть просроченной. */}
-      <Button size="sm" variant={dirty ? 'green' : 'plain'} onClick={() => onSave(draft)}>
+      <Button size="sm" variant={dirty ? 'green' : 'plain'} onClick={() => commit(draft)}>
         {dirty ? saveLabel : t('qty.confirm')}
       </Button>
     </div>

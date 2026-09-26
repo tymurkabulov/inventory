@@ -4,9 +4,11 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildApp } from '../src/app.js';
 import { loadConfig } from '../src/config.js';
 import { hashInviteCode, totpCode, totpStep } from '../src/crypto.js';
+import { cookieNames } from '../src/routes/auth.js';
 import { one, socketDb } from './helpers.js';
 
 process.env.NODE_ENV = 'test';
+process.env.OPS_TOKEN = 'ops-token-for-tests';
 
 let env: Awaited<ReturnType<typeof socketDb>>;
 let app: FastifyInstance;
@@ -55,7 +57,7 @@ async function expectOk(p: Promise<LightMyRequestResponse>) {
 /** Сбросить лимиты попыток: в тестах несколько сценариев подряд бьют по одному позывному. */
 async function unlock(name: string) {
   await env.db.query(
-    `update horizon.users set locked_until = null, failed_attempts = 0, totp_last_step = null where login = $1`,
+    `update horizon.users set totp_last_step = null where login = $1`,
     [name],
   );
   await env.db.query('delete from horizon.auth_attempts');
@@ -87,7 +89,7 @@ describe('сценарий раздела 13 через API', () => {
       env.db,
       `insert into horizon.users (login, callsign, invite_code_hash, invite_expires_at)
        values ('grom', 'Гром', $1, now() + interval '1 day') returning id`,
-      [hashInviteCode('ABCD-EFGH')],
+      [hashInviteCode('ABCD-EFGH', config.appSecret)],
     );
     await env.db.query(`insert into horizon.admin_scopes (user_id, scope) values ($1, 'full')`, [id]);
 
@@ -285,6 +287,31 @@ describe('сценарий раздела 13 через API', () => {
     expect((await laptop.get('/api/me')).statusCode).toBe(401);
   });
 
+  // Унести можно только cookie сессии: cookie устройства httpOnly и лежит рядом,
+  // но в чужом браузере её нет. Без неё сессия работать не должна.
+  it('перенос токена сессии в браузер без cookie устройства не проходит', async () => {
+    await unlock('grom');
+    const { session } = cookieNames(config.secureCookies);
+    const phone = new Browser();
+    await expectOk(
+      phone.post('/api/auth/login', { login: 'grom', password: 'grim-parol-2026', totp: totpCode(bossSecret, totpStep()) }),
+    );
+    expect((await phone.get('/api/me')).statusCode).toBe(200);
+
+    const thief = new Browser();
+    thief.cookies.set(session, phone.cookies.get(session)!);
+    expect((await thief.get('/api/me')).statusCode).toBe(401);
+
+    // Владельца при этом не выкидывает: ошибка здесь стоила бы ему входа.
+    expect((await phone.get('/api/me')).statusCode).toBe(200);
+
+    const audit = await one<{ n: number }>(
+      env.db,
+      `select count(*)::int n from horizon.audit_log where action = 'session_device_mismatch'`,
+    );
+    expect(audit.n).toBeGreaterThan(0);
+  });
+
   it('секрет приложения хранится зашифрованным', async () => {
     const row = await one<{ totp_secret: string }>(env.db, `select totp_secret from horizon.users where login = 'alfa'`);
     expect(row.totp_secret.startsWith('v1.')).toBe(true);
@@ -343,8 +370,116 @@ describe('сценарий раздела 13 через API', () => {
     expect(saved).toMatchObject({ status: 'red', updated_by_callsign: 'Їжак' });
   });
 
-  it('health', async () => {
+  // Контракт, на который опирается карточка имущества: поле, которого нет в
+  // запросе, остаётся как есть. Иначе сохранение комментария из давно открытой
+  // карточки вернёт остаток к числу на момент её открытия.
+  it('сохранение без qty не трогает остаток, поставленный с другого телефона', async () => {
+    const item = await expectOk(
+      boss.post('/api/items', {
+        position_id: p3, name: 'Скотч', unit: 'шт', qty: 10, min_qty: 2, acceptable_qty: 5, ideal_qty: 20,
+      }),
+    );
+    await expectOk(alpha.post('/api/items', { id: item.id, qty: 3 }));
+    const saved = await expectOk(boss.post('/api/items', { id: item.id, comment: 'перевірив' }));
+    expect(saved).toMatchObject({ qty: 3, comment: 'перевірив' });
+  });
+
+  // Снимок карточки против чужой правки. Заодно проверяет круговорот updated_at
+  // через JSON: драйвер отдаёт timestamptz как Date, микросекунды теряются, и
+  // точное сравнение в БД отвергало бы каждое сохранение подряд.
+  it('карточка со старым снимком получает 409, со свежим — сохраняется', async () => {
+    const item = await expectOk(
+      boss.post('/api/items', {
+        position_id: p3, name: 'Ліхтар', unit: 'шт', qty: 4, min_qty: 1, acceptable_qty: 2, ideal_qty: 8,
+      }),
+    );
+    const opened = item.updated_at;
+
+    // Пока карточка открыта, остаток поправили с другого телефона.
+    await expectOk(alpha.post('/api/items', { id: item.id, qty: 1 }));
+
+    const stale = await boss.post('/api/items', { id: item.id, comment: 'на позиції', expected_updated_at: opened });
+    expect(stale.statusCode).toBe(409);
+    expect(stale.json()).toMatchObject({ code: 'item_changed' });
+
+    const board = await expectOk(boss.get(`/api/positions/${p3}/board`));
+    const fresh = board.items.find((i: { id: string }) => i.id === item.id);
+    const saved = await expectOk(
+      boss.post('/api/items', { id: item.id, comment: 'на позиції', expected_updated_at: fresh.updated_at }),
+    );
+    expect(saved).toMatchObject({ qty: 1, comment: 'на позиції' });
+  });
+
+  // Степпер снимок не шлёт: человек смотрит на живое число и ставит пересчитанное.
+  it('правка остатка без снимка проходит всегда', async () => {
+    const board = await expectOk(boss.get(`/api/positions/${p3}/board`));
+    const item = board.items.find((i: { name: string }) => i.name === 'Ліхтар');
+    expect((await expectOk(boss.post('/api/items', { id: item.id, qty: 7 }))).qty).toBe(7);
+  });
+
+  // Неверный код в мастере первого входа — такая же попытка, как в обычном входе.
+  // Раньше она откатывалась вместе с транзакцией и не стоила подбирающему ничего.
+  it('неверный код в мастере первого входа засчитывается в лимит', async () => {
+    const inv = await expectOk(boss.post('/api/admin/users', { login: 'proba', callsign: 'Проба' }));
+    const b = new Browser('10.55.0.1');
+    const { secret } = await expectOk(b.post('/api/auth/totp-secret', { login: 'proba', code: inv.code }));
+    const attempts = async () =>
+      (await one<{ n: number }>(env.db, `select count(*)::int n from horizon.auth_attempts where callsign = 'proba'`)).n;
+
+    const before = await attempts();
+    const res = await b.post('/api/auth/setup', {
+      login: 'proba', code: inv.code, password: 'dovga-parolya-2026', secret, totp: totpCode(secret, totpStep() + 50),
+    });
+
+    expect(res.statusCode).toBe(401);
+    expect(res.json()).toMatchObject({ code: 'bad_totp' });
+    expect(await attempts()).toBe(before + 1);
+  });
+
+  // Лимит на человека, а не на адрес: за общим прокси адрес у всех один.
+  // Проверяем на отдельном экземпляре приложения — у него свой счётчик.
+  it('клиент в цикле упирается в лимит, обычная работа — нет', async () => {
+    const strict = await buildApp({ config: { ...config, ratePerUserPerMinute: 5 }, pool: env.pool });
+    try {
+      const headers = {
+        'x-horizon': '1',
+        cookie: [...boss.cookies].map(([k, v]) => `${k}=${v}`).join('; '),
+      };
+      const codes: number[] = [];
+      for (let i = 0; i < 17; i++) {
+        codes.push((await strict.inject({ method: 'GET', url: '/api/me', headers })).statusCode);
+      }
+      expect(codes.slice(0, 5)).toEqual([200, 200, 200, 200, 200]);
+      expect(codes[16]).toBe(429);
+
+      // Двенадцать отказов за минуту — это уже не опечатка клиента, и наблюдатель
+      // снаружи должен это увидеть, ничего не зная про устройство приложения.
+      const health = (await strict.inject({ method: 'GET', url: '/api/health' })).json();
+      expect(health).toEqual({ ok: true, degraded: true });
+    } finally {
+      await strict.close();
+    }
+  });
+
+  it('health: наружу только «жив», подробности — по токену', async () => {
+    // Строгое сравнение: адрес открыт всему интернету, и лишнего в нём быть не должно.
     const res = await app.inject({ method: 'GET', url: '/api/health' });
-    expect(res.json()).toEqual({ ok: true });
+    expect(res.json()).toEqual({ ok: true, degraded: false });
+
+    // Внешний пингер ищет эту строку буквально (README, раздел «Наблюдение»).
+    // Лишний пробел или другой порядок ключей — ложная тревога каждые пять минут.
+    expect(res.payload).toContain('"degraded":false');
+
+    const inside = (
+      await app.inject({ method: 'GET', url: '/api/health', headers: { 'x-horizon-ops': 'ops-token-for-tests' } })
+    ).json();
+    // errors: 0 заодно означает, что весь этот файл не вызвал ни одной пятисотки.
+    expect(inside).toMatchObject({ ok: true, schema: expect.stringMatching(/^\d{3}_.*\.sql$/), errors: 0 });
+    expect(inside.migrations).toBeGreaterThan(0);
+
+    const wrong = (
+      await app.inject({ method: 'GET', url: '/api/health', headers: { 'x-horizon-ops': 'не тот' } })
+    ).json();
+    expect(wrong.schema).toBeUndefined();
   });
 });

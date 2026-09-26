@@ -1,0 +1,15 @@
+# Всё текстовое — с окончаниями строк LF, на любой машине.
+#
+# Git для Windows ставит core.autocrlf=true, и тогда git archive (им код уезжает
+# на сервер) собирает файлы с CRLF. sh в контейнере на `set -eu\r` падает:
+# бэкап уходил в бесконечный перезапуск. eol=lf сильнее autocrlf.
+* text=auto eol=lf
+
+# Двоичное не трогать.
+*.png binary
+*.jpg binary
+*.ico binary
+*.woff2 binary
+*.dump binary
+*.enc binary
+*.tar.gz binary

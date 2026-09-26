@@ -1,8 +1,8 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { Link } from '@tanstack/react-router';
 import { type FormEvent, useState } from 'react';
 import { api, type PositionRow } from '../api';
 import { useT } from '../i18n';
-import { usePageTitle } from '../hooks';
 import {
   BottomBar,
   Button,
@@ -12,22 +12,24 @@ import {
   Field,
   Input,
   Loading,
+  PageTitle,
   Sheet,
   Tag,
-  Textarea,
-  useToast,
 } from '../ui';
 import { usePositions } from './queries';
 
-export function Positions({ open }: { open: (id: string) => void }) {
+export function Positions() {
   const t = useT();
   const positions = usePositions();
   const [editing, setEditing] = useState<PositionRow | 'new' | null>(null);
 
-  usePageTitle(t('nav.positions'), positions.data ? t('pos.count', { count: positions.data.length }) : undefined);
 
   return (
     <>
+      <PageTitle
+        title={t('nav.positions')}
+        meta={positions.data ? t('pos.count', { count: positions.data.length }) : undefined}
+      />
       <div className="min-h-0 flex-1 overflow-auto">
         <div className="flex flex-col gap-3 p-3">
           <div className="hidden self-start lg:block">
@@ -46,7 +48,7 @@ export function Positions({ open }: { open: (id: string) => void }) {
             <div className="flex flex-col gap-1.5">
               {positions.data.map((p) => (
                 <div key={p.id} className="flex min-h-16 flex-wrap items-center gap-2 border border-line bg-surf p-2.5">
-                  <button type="button" onClick={() => open(p.id)} className="min-w-0 flex-1 text-left">
+                  <Link to="/pos/$positionId" params={{ positionId: p.id }} className="min-w-0 flex-1 text-left">
                     <b className="flex items-center gap-2">
                       <span className="truncate">{p.name}</span>
                       {!p.is_active && <Tag>{t('board.disabled').replace(/^[\s·]+/, '')}</Tag>}
@@ -54,7 +56,7 @@ export function Positions({ open }: { open: (id: string) => void }) {
                     <span className="block truncate text-xs text-muted">
                       {t('pos.staleAfter', { hours: p.stale_after_hours })}
                     </span>
-                  </button>
+                  </Link>
                   <Button size="sm" variant="plain" onClick={() => setEditing(p)}>
                     {t('pos.edit')}
                   </Button>

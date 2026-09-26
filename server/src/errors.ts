@@ -26,10 +26,6 @@ const RULES: Rule[] = [
   { code: 'transfer_before_start', re: /^дата перевода раньше даты захода \((.+)\)$/, params: ['date'] },
   { code: 'unassign_before_start', re: /^дата снятия раньше даты захода \((.+)\)$/, params: ['date'] },
   { code: 'invite_invalid', re: /^код недействителен$/ },
-  // Подтверждение устройства кодом из бота убрано в 006, но текст остаётся в старых миграциях.
-  { code: 'challenge_expired', re: /^код устарел/ },
-  // Оповещения и телефон убраны в 012, но raise остаётся в старых миграциях.
-  { code: 'admin_needs_phone', re: /^админу нужен телефон бота/ },
   { code: 'position_inactive', re: /^место «(.*)» выключено$/, params: ['name'] },
   { code: 'position_exists', re: /^место «(.*)» уже есть$/, params: ['name'] },
   { code: 'position_has_people', re: /^на месте есть люди/ },
@@ -45,16 +41,18 @@ const RULES: Rule[] = [
   { code: 'thresholds_invalid', re: /^пороги: мин ≥ 0/ },
   { code: 'item_fields', re: /^проверьте поля:/ },
   { code: 'category_unknown', re: /^категории «(.*)» нет в справочнике$/, params: ['category'] },
-  { code: 'too_many_codes', re: /^слишком много запросов кода/ },
   { code: 'item_exists', re: /^строка «(.*)» на этом месте уже есть$/, params: ['name'] },
-  { code: 'text_length', re: /^текст 1–500 символов$/ },
+  { code: 'item_changed', re: /^строку уже изменили/ },
+  { code: 'qty_changed', re: /^остаток уже изменили: сейчас (.+)$/, params: ['qty'] },
+  { code: 'forbidden_assign_full', re: /^полного админа сажает только полный админ$/ },
+  { code: 'assign_before_last_end', re: /^дата захода раньше конца прошлого места \((.+)\)$/, params: ['date'] },
   { code: 'already_assigned', re: /^у человека уже есть место/ },
   { code: 'delete_forbidden', re: /^удаление .* запрещено$/ },
   { code: 'already_unassigned', re: /^человек и так без места$/ },
   { code: 'not_assigned', re: /^человек не посажен/ },
   { code: 'person_inactive', re: /^человек отключён$/ },
   { code: 'same_position', re: /^человек уже на этом месте$/ },
-  { code: 'locale_invalid', re: /^язык: (код из двух латинских букв|ru, uk или en)$/ },
+  { code: 'locale_invalid', re: /^язык: код из двух латинских букв$/ },
 ];
 
 export function codeForDbMessage(message: string): { code: string; params?: ErrorParams } | null {

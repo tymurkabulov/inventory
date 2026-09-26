@@ -3,14 +3,27 @@
   "private": true,
   "version": "0.1.0",
   "description": "Horizon — ротный учёт личного состава и имущества",
-  "workspaces": ["server", "web"],
+  "workspaces": [
+    "server",
+    "web"
+  ],
   "scripts": {
     "dev:api": "npm run dev:api -w server",
     "dev:worker": "npm run dev:worker -w server",
     "dev:web": "npm run dev -w web",
     "build": "npm run build -w server && npm run build -w web",
-    "test": "npm test -w server",
+    "test": "npm test -w server && npm test -w web",
+    "lint": "eslint .",
     "typecheck": "npm run typecheck -w server && npm run typecheck -w web"
   },
-  "engines": { "node": ">=20" }
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.11.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^16.5.0",
+    "typescript-eslint": "^8.70.1"
+  }
 }

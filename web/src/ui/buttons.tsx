@@ -17,6 +17,21 @@ const VARIANT: Record<Variant, string> = {
   plain: 'border-line bg-surf-2 text-text hover:bg-surf-3',
 };
 
+/** Вид кнопки — отдельно, чтобы ссылка (<Link>) выглядела так же, оставаясь ссылкой. */
+export function buttonClass({
+  variant = 'plain',
+  size = 'md',
+  block,
+}: { variant?: Variant; size?: 'sm' | 'md'; block?: boolean } = {}): string {
+  return cx(
+    'inline-flex items-center justify-center gap-2 border font-semibold whitespace-nowrap',
+    'active:translate-y-px disabled:translate-y-0 disabled:opacity-40',
+    size === 'sm' ? 'min-h-9 px-2.5 text-xs' : 'min-h-touch px-3 text-sm',
+    block && 'w-full',
+    VARIANT[variant],
+  );
+}
+
 export function Button({
   variant = 'plain',
   size = 'md',
@@ -39,14 +54,7 @@ export function Button({
       type="button"
       {...rest}
       disabled={disabled || busy}
-      className={cx(
-        'inline-flex items-center justify-center gap-2 border font-semibold whitespace-nowrap',
-        'active:translate-y-px disabled:translate-y-0 disabled:opacity-40',
-        size === 'sm' ? 'min-h-9 px-2.5 text-xs' : 'min-h-touch px-3 text-sm',
-        block && 'w-full',
-        VARIANT[variant],
-        className,
-      )}
+      className={cx(buttonClass({ variant, size, block }), className)}
     >
       {busy ? <Spinner /> : icon ? <Icon name={icon} className={size === 'sm' ? 'size-4' : 'size-5'} /> : null}
       {children}

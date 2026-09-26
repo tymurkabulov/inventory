@@ -9,7 +9,7 @@ export function PersonHistory({ personId }: { personId: string }) {
   const t = useT();
   const history = useQuery({
     queryKey: ['admin', 'history', personId],
-    queryFn: () => api.get<HistoryRow[]>(`/admin/users/${personId}/history`),
+    queryFn: ({ signal }) => api.get<HistoryRow[]>(`/admin/users/${personId}/history`, signal),
   });
 
   return (

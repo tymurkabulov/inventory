@@ -1,4 +1,4 @@
-import { createContext, type ReactNode, useCallback, useContext, useState } from 'react';
+import { createContext, type ReactNode, useContext, useState } from 'react';
 
 import { cx } from './cx';
 
@@ -15,11 +15,11 @@ const ToastCtx = createContext<(text: string, kind?: ToastItem['kind']) => void>
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [items, setItems] = useState<ToastItem[]>([]);
-  const push = useCallback((text: string, kind: ToastItem['kind'] = 'success') => {
+  const push = (text: string, kind: ToastItem['kind'] = 'success') => {
     const id = Date.now() + Math.random();
     setItems((xs) => [...xs.slice(-2), { id, text, kind }]);
     setTimeout(() => setItems((xs) => xs.filter((x) => x.id !== id)), kind === 'error' ? 6000 : 3000);
-  }, []);
+  };
   return (
     <ToastCtx.Provider value={push}>
       {children}

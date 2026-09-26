@@ -1,4 +1,4 @@
-import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { createContext, type ReactNode, useContext, useEffect, useState } from 'react';
 import en from './locales/en';
 import uk from './locales/uk';
 
@@ -62,6 +62,9 @@ export function detectLang(): Lang {
   return DEFAULT_LANG;
 }
 
+/** Переводчик без контекста: нужен границе ошибок, где провайдеров уже может не быть. */
+export const staticT = (): T => makeT(detectLang());
+
 /** Человек сам выбирал язык на этом устройстве. */
 export function hasSavedLang(): boolean {
   return savedLang() !== null;
@@ -79,7 +82,7 @@ const I18nCtx = createContext<I18n | null>(null);
 export function I18nProvider({ children }: { children: ReactNode }) {
   const [lang, setLangState] = useState<Lang>(detectLang);
 
-  const setLang = useCallback((next: Lang, explicit = true) => {
+  const setLang = (next: Lang, explicit = true) => {
     setLangState(next);
     if (explicit) {
       try {
@@ -88,13 +91,13 @@ export function I18nProvider({ children }: { children: ReactNode }) {
         /* не критично */
       }
     }
-  }, []);
+  };
 
   useEffect(() => {
     document.documentElement.lang = lang;
   }, [lang]);
 
-  const value = useMemo(() => ({ lang, setLang, t: makeT(lang) }), [lang, setLang]);
+  const value = { lang, setLang, t: makeT(lang) };
   return <I18nCtx.Provider value={value}>{children}</I18nCtx.Provider>;
 }
 
@@ -106,7 +109,8 @@ export function useI18n(): I18n {
 
 export const useT = () => useI18n().t;
 
-const VALIDATION_FIELDS = new Set(['pin', 'code', 'callsign']);
+// Поля, у которых есть свой перевод ошибки: err.validation.<поле>.
+const VALIDATION_FIELDS = new Set(['password', 'totp', 'code', 'callsign']);
 
 /** Текст ошибки на текущем языке: по коду от сервера, иначе запасной. */
 export function errorText(t: T, err: unknown): string {

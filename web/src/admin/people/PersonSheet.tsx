@@ -28,7 +28,7 @@ export function PersonSheet({ me, person, onClose }: { me: Me; person: Person; o
           <span className="text-sm">{person.position_name ?? '—'}</span>
         </Box>
         <Box label={t('person.login')}>
-          <span className="font-mono text-sm">{person.login}</span>
+          <span className="font-mono text-sm">{person.login ?? '—'}</span>
         </Box>
         <Box label={t('people.colSeen')}>
           <span className="text-sm">{person.last_seen_at ? fmtAgo(lang, person.last_seen_at, now) : t('people.neverSeen')}</span>

@@ -3,9 +3,10 @@ import { z } from 'zod';
 import { type AppDeps, requireUser } from '../app.js';
 import { AppError, asUser } from '../db.js';
 import { LOCALES } from '../i18n.js';
-import { cookieNames } from './auth.js';
+import { cookieNames, cookieOptions } from './auth.js';
 
-const qty = z.coerce.number().finite().min(0).max(1e9);
+// Без coerce: «""» и « » превращались в 0 и молча делали строку красной.
+const qty = z.number().finite().min(0).max(1e9);
 
 const itemBody = z.object({
   id: z.uuid().nullish(),
@@ -20,6 +21,10 @@ const itemBody = z.object({
   condition: z.enum(['ok', 'repair', 'broken']).nullish(),
   comment: z.string().max(280).nullish(),
   reason: z.string().max(120).nullish(),
+  /** updated_at, который карточка видела при открытии: защита от затирания чужой правки. */
+  expected_updated_at: z.iso.datetime().nullish(),
+  /** Остаток, от которого считал степпер: защита от потери параллельной правки. */
+  expected_qty: qty.nullish(),
 });
 
 // Цвет не хранится: считаем в запросе через те же функции, что и в БД.
@@ -36,6 +41,7 @@ export const boardRoutes =
   ({ config, pool }: AppDeps): FastifyPluginAsync =>
   async (app) => {
     const { session: SESSION_COOKIE } = cookieNames(config.secureCookies);
+    const cookieBase = cookieOptions(config.secureCookies);
 
     app.get('/me', async (req) => {
       const uid = requireUser(req);
@@ -56,7 +62,7 @@ export const boardRoutes =
     app.post('/me/revoke-sessions', async (req, reply) => {
       const uid = requireUser(req);
       await asUser(pool, uid, (c) => c.query('select horizon.revoke_sessions($1)', [uid]));
-      reply.clearCookie(SESSION_COOKIE, { path: '/' });
+      reply.clearCookie(SESSION_COOKIE, cookieBase);
       return { ok: true };
     });
 
@@ -115,7 +121,7 @@ export const boardRoutes =
       if (!b.id && !b.name) throw new AppError(422, 'нужно название', 'name_required');
       return asUser(pool, uid, async (c) => {
         const saved = await c.query<{ id: string }>(
-          `select id from horizon.upsert_item($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+          `select id from horizon.upsert_item($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
           [
             b.id ?? null,
             b.position_id ?? null,
@@ -129,6 +135,8 @@ export const boardRoutes =
             b.condition ?? null,
             b.comment ?? null,
             b.reason ?? '',
+            b.expected_updated_at ?? null,
+            b.expected_qty ?? null,
           ],
         );
         const { rows } = await c.query(

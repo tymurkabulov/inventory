@@ -1,13 +1,13 @@
 import type { Me } from '../api';
 import { useT } from '../i18n';
-import { usePageTitle } from '../hooks';
+import { PageTitle } from '../ui';
 
 // Раздел 2: без привязки — никакого списка мест, только ожидание.
 export function Waiting({ me }: { me: Me }) {
   const t = useT();
-  usePageTitle(t('waiting.title'), me.callsign);
   return (
     <div className="min-h-0 flex-1 overflow-auto">
+      <PageTitle title={t('waiting.title')} meta={me.callsign} />
       <div className="mx-auto max-w-100 px-5 py-7">
         <div className="text-[11px] font-bold tracking-[0.14em] text-muted uppercase">STATUS</div>
         <h2 className="my-2 text-2xl font-semibold">{t('waiting.title')}</h2>

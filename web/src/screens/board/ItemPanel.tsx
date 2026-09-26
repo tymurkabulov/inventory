@@ -21,7 +21,7 @@ import {
   Textarea,
   useToast,
 } from '../../ui';
-import { type ItemPatch, useCategories, useSaveItem } from './items';
+import { useCategories, useSaveItem } from './items';
 
 const CONDITIONS: Condition[] = ['ok', 'repair', 'broken'];
 
@@ -70,7 +70,7 @@ export function ItemPanel({
 
   const movements = useQuery({
     queryKey: ['movements', item?.id],
-    queryFn: () => api.get<Movement[]>(`/items/${item!.id}/movements`),
+    queryFn: ({ signal }) => api.get<Movement[]>(`/items/${item!.id}/movements`, signal),
     enabled: !!item,
     // Открыли карточку — спрашиваем заново: остаток мог измениться минуту назад.
     refetchOnMount: 'always',
@@ -97,12 +97,18 @@ export function ItemPanel({
         name: f.name.trim(),
         category: f.category.trim(),
         unit: f.unit.trim() || units[0]!,
-        qty,
+        // Остаток существующей строки правится степпером, в форме его поля нет.
+        // Слать сюда f.qty нельзя: это снимок на момент открытия карточки, и он
+        // затрёт число, которое за это время поставили с другого телефона.
+        ...(item ? {} : { qty }),
         min_qty: min,
         acceptable_qty: acc,
         ideal_qty: ideal,
         condition: f.condition,
         comment: f.comment,
+        // Строка могла измениться, пока карточка открыта: сервер сверит снимок
+        // и откажет, вместо того чтобы молча вернуть её к прежнему состоянию.
+        expected_updated_at: item?.updated_at,
       },
       { onSuccess: onClose },
     );
@@ -154,7 +160,7 @@ export function ItemPanel({
         <QtyStepper
           value={item.qty}
           saveLabel={t('common.save')}
-          onSave={(next) => save.mutate({ id: item.id, qty: next }, { onSuccess: onClose })}
+          onSave={(next, expected) => save.mutate({ id: item.id, qty: next, expected_qty: expected }, { onSuccess: onClose })}
         />
       )}
 

@@ -1,8 +1,7 @@
-import type { ReactNode } from 'react';
+import { createContext, type ReactNode, use } from 'react';
+import { createPortal } from 'react-dom';
 
 import { errorText, useT } from '../i18n';
-
-import { cx } from './cx';
 
 import { IconButton, Spinner } from './buttons';
 
@@ -28,15 +27,33 @@ export function Banner({ children }: { children: ReactNode }) {
 
 // ---------------------------------------------------------------------------
 // Разметка приложения: слева разделы (ноутбук), сверху заголовок экрана.
+//
+// Заголовок принадлежит экрану, а стоит в шапке каркаса. Экран рендерит его
+// порталом прямо в место в шапке — без эффекта, который перекладывал бы
+// заголовок в состояние каркаса и рисовал экран второй раз.
 // ---------------------------------------------------------------------------
+export const PageTitleSlot = createContext<HTMLElement | null>(null);
+
+/** Заголовок экрана в шапке. Пока экран его не дал — «Horizon». */
+export function PageTitle({ title, meta }: { title: ReactNode; meta?: ReactNode }) {
+  const slot = use(PageTitleSlot);
+  if (!slot) return null;
+  return createPortal(
+    <>
+      <h1 className="truncate text-base leading-[22px] font-semibold">{title}</h1>
+      {meta ? <div className="truncate text-xs leading-4 text-muted">{meta}</div> : null}
+    </>,
+    slot,
+  );
+}
+
 export function TopBar({
-  title,
-  meta,
+  titleRef,
   onBack,
   children,
 }: {
-  title: ReactNode;
-  meta?: ReactNode;
+  /** Место под заголовок экрана: его займёт PageTitle. */
+  titleRef: (el: HTMLElement | null) => void;
   onBack?: () => void;
   children?: ReactNode;
 }) {
@@ -44,9 +61,9 @@ export function TopBar({
   return (
     <header className="flex min-h-14 shrink-0 items-center gap-2 border-b border-line bg-surf px-3 py-2">
       {onBack && <IconButton icon="back" label={t('nav.back')} onClick={onBack} />}
-      <div className="min-w-0 flex-1">
-        <h1 className="truncate text-base leading-[22px] font-semibold">{title}</h1>
-        {meta ? <div className="truncate text-xs leading-4 text-muted">{meta}</div> : null}
+      <div ref={titleRef} className="min-w-0 flex-1">
+        {/* Запасной заголовок виден, только пока в слоте нет заголовка экрана. */}
+        <h1 className="hidden truncate text-base leading-[22px] font-semibold only:block">Horizon</h1>
       </div>
       {children}
     </header>

@@ -14,7 +14,7 @@ export function BoardTable({
   items: Item[];
   now: number;
   onOpen: (item: Item) => void;
-  onSaveQty: (id: string, qty: number) => void;
+  onSaveQty: (id: string, qty: number, expected: number) => void;
 }) {
   const { t, lang } = useI18n();
   return (
@@ -55,7 +55,7 @@ export function BoardTable({
                 <div className="text-xs text-muted">{it.category || '—'}</div>
               </td>
               <td className="border-b border-line px-2 py-1.5">
-                <QtyStepper value={it.qty} saveLabel={t('common.save')} onSave={(qty) => onSaveQty(it.id, qty)} />
+                <QtyStepper value={it.qty} saveLabel={t('common.save')} onSave={(qty, expected) => onSaveQty(it.id, qty, expected)} />
                 <div className="tnum mt-1 text-xs text-muted">
                   {fmtQty(lang, it.qty)}/{fmtQty(lang, it.ideal_qty)} {it.unit} · {t('item.min')} {fmtQty(lang, it.min_qty)}
                 </div>

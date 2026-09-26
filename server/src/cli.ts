@@ -29,7 +29,7 @@ try {
     const { rows } = await client.query<{ id: string }>(
       `insert into horizon.users (login, callsign, invite_code_hash, invite_expires_at)
        values ($1, $2, $3, now() + make_interval(hours => $4)) returning id`,
-      [login, callsign, hashInviteCode(code), config.inviteValidHours],
+      [login, callsign, hashInviteCode(code, config.appSecret), config.inviteValidHours],
     );
     const id = rows[0]!.id;
     await client.query(`insert into horizon.admin_scopes (user_id, scope) values ($1, 'full')`, [id]);
@@ -41,9 +41,9 @@ try {
     const { rows } = await client.query<{ id: string }>(
       `update horizon.users set password_hash = null, totp_secret = null, totp_last_step = null, invite_code_hash = $2,
               invite_expires_at = now() + make_interval(hours => $3),
-              failed_attempts = 0, locked_until = null, is_active = true
+              is_active = true
         where lower(login) = lower($1) returning id`,
-      [login, hashInviteCode(code), config.inviteValidHours],
+      [login, hashInviteCode(code, config.appSecret), config.inviteValidHours],
     );
     const id = rows[0]?.id;
     if (!id) throw new Error(`логин ${login} не найден`);
